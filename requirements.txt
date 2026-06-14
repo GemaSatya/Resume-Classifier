@@ -6,3 +6,4 @@ xgboost
 nltk
 matplotlib
 seaborn
+joblib
