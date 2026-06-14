@@ -9,8 +9,6 @@ import pandas as pd
 import numpy as np
 import re, string, os
 
-import matplotlib
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -53,7 +51,6 @@ body { background: #f5f6fa; }
     border-radius: 10px; padding: 16px 20px;
     font-size: 17px; font-weight: 700; text-align: center; margin-top: 8px;
 }
-.metric-row { display:flex; gap:10px; margin-bottom:6px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -146,114 +143,102 @@ def train_all(csv_path):
     }
     return vec, enc, bundle, sorted(y_te.unique())
 
-# ── Load ─────────────────────────────────────────────────────
-CSV = "D:/Tugas Kuliah/Semester 4/Kecerdasan Buatan/Projek/UpdatedResumeDataSet.csv"
-with st.spinner("⏳ Melatih model… (hanya sekali)"):
+# ── Resolve CSV path (lokal & Streamlit Cloud) ───────────────
+_BASE = os.path.dirname(os.path.abspath(__file__))
+CSV   = os.path.join(_BASE, "UpdatedResumeDataSet.csv")
+
+if not os.path.exists(CSV):
+    st.error(
+        "❌ File **UpdatedResumeDataSet.csv** tidak ditemukan.\n\n"
+        f"Letakkan di folder yang sama dengan `main.py`:\n`{_BASE}`"
+    )
+    st.stop()
+
+with st.spinner("⏳ Melatih keempat model… (hanya sekali, lalu di-cache)"):
     vec, enc, bundle, classes = train_all(CSV)
 
 best_model = max(bundle, key=lambda m: bundle[m]["f1"])
 
-# ═══════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 # HEADER
-# ═══════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 st.title("📄 Resume Classification Comparator")
-st.caption("Isi form CV di bawah → keempat model akan mengklasifikasikan dan hasilnya dibandingkan")
+st.caption("Isi form CV di bawah → keempat model mengklasifikasikan secara bersamaan, lalu hasilnya dibandingkan")
 
 tab_form, tab_compare, tab_viz = st.tabs(["📝 Form Input CV", "📊 Komparasi Model", "📈 Visualisasi"])
 
-# ═══════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 # TAB 1 — FORM INPUT CV
-# ═══════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 with tab_form:
     col_form, col_result = st.columns([1.1, 0.9], gap="large")
 
     with col_form:
         st.markdown("### 🧑‍💼 Data Diri")
-
         c1, c2 = st.columns(2)
         with c1:
-            nama       = st.text_input("Nama Lengkap", placeholder="Contoh: Budi Santoso")
-            email      = st.text_input("Email", placeholder="budi@email.com")
+            nama    = st.text_input("Nama Lengkap",  placeholder="Budi Santoso")
+            email   = st.text_input("Email",          placeholder="budi@email.com")
         with c2:
-            telepon    = st.text_input("No. Telepon", placeholder="08xx-xxxx-xxxx")
-            kota       = st.text_input("Kota / Lokasi", placeholder="Semarang, Jawa Tengah")
+            telepon = st.text_input("No. Telepon",    placeholder="08xx-xxxx-xxxx")
+            kota    = st.text_input("Kota / Lokasi",  placeholder="Semarang, Jawa Tengah")
 
-        # ── Pendidikan
         st.markdown('<div class="section-title">🎓 Pendidikan</div>', unsafe_allow_html=True)
         c3, c4 = st.columns(2)
         with c3:
-            jenjang    = st.selectbox("Jenjang Pendidikan", ["SMA/SMK", "D3", "S1", "S2", "S3"])
-            jurusan    = st.text_input("Jurusan / Program Studi", placeholder="Teknik Informatika")
+            jenjang     = st.selectbox("Jenjang Pendidikan", ["SMA/SMK","D3","S1","S2","S3"])
+            jurusan     = st.text_input("Jurusan / Program Studi", placeholder="Teknik Informatika")
         with c4:
             universitas = st.text_input("Nama Institusi", placeholder="Universitas Diponegoro")
-            tahun_lulus = st.text_input("Tahun Lulus", placeholder="2022")
+            tahun_lulus = st.text_input("Tahun Lulus",    placeholder="2022")
 
-        # ── Keahlian
         st.markdown('<div class="section-title">🛠️ Keahlian (Skills)</div>', unsafe_allow_html=True)
-        skills_teknis  = st.text_area("Skills Teknis",
+        skills_teknis = st.text_area("Skills Teknis",
             placeholder="Python, Machine Learning, SQL, TensorFlow, Scikit-learn, Pandas, NLP...",
             height=90)
-        skills_non     = st.text_area("Skills Non-Teknis / Soft Skills",
+        skills_non = st.text_area("Skills Non-Teknis / Soft Skills",
             placeholder="Komunikasi, Kepemimpinan, Manajemen Proyek, Analisis Data...",
             height=70)
 
-        # ── Pengalaman Kerja
         st.markdown('<div class="section-title">💼 Pengalaman Kerja</div>', unsafe_allow_html=True)
-
-        num_exp = st.number_input("Jumlah pengalaman yang ingin diisi", min_value=0, max_value=5, value=1, step=1)
+        num_exp = st.number_input("Jumlah pengalaman", min_value=0, max_value=5, value=1, step=1)
 
         exp_texts = []
         for i in range(int(num_exp)):
-            with st.expander(f"Pengalaman #{i+1}", expanded=(i==0)):
+            with st.expander(f"Pengalaman #{i+1}", expanded=(i == 0)):
                 cx1, cx2 = st.columns(2)
                 with cx1:
-                    posisi    = st.text_input(f"Posisi / Jabatan", key=f"pos_{i}",
-                                              placeholder="Data Scientist")
-                    perusahaan = st.text_input(f"Nama Perusahaan", key=f"co_{i}",
-                                               placeholder="PT. Teknologi Maju")
+                    posisi     = st.text_input("Posisi / Jabatan",  key=f"pos_{i}",  placeholder="Data Scientist")
+                    perusahaan = st.text_input("Nama Perusahaan",   key=f"co_{i}",   placeholder="PT. Teknologi Maju")
                 with cx2:
-                    periode   = st.text_input(f"Periode", key=f"per_{i}",
-                                              placeholder="Jan 2021 – Des 2022")
-                    lama      = st.text_input(f"Lama Bekerja", key=f"lama_{i}",
-                                              placeholder="2 tahun")
-                deskripsi = st.text_area(f"Deskripsi Pekerjaan", key=f"desc_{i}",
+                    periode    = st.text_input("Periode",            key=f"per_{i}",  placeholder="Jan 2021 – Des 2022")
+                    lama       = st.text_input("Lama Bekerja",       key=f"lama_{i}", placeholder="2 tahun")
+                deskripsi = st.text_area("Deskripsi Pekerjaan", key=f"desc_{i}",
                     placeholder="Mengembangkan model prediksi menggunakan Python dan Scikit-learn...",
                     height=80)
                 exp_texts.append(f"{posisi} at {perusahaan} {periode} {lama}. {deskripsi}")
 
-        # ── Sertifikasi & Project
         st.markdown('<div class="section-title">📜 Sertifikasi & Proyek</div>', unsafe_allow_html=True)
         sertifikasi = st.text_area("Sertifikasi",
-            placeholder="TensorFlow Developer Certificate, AWS Cloud Practitioner, PMP...",
-            height=70)
+            placeholder="TensorFlow Developer Certificate, AWS Cloud Practitioner, PMP...", height=70)
         proyek = st.text_area("Proyek yang Pernah Dikerjakan",
-            placeholder="Sistem rekomendasi berbasis collaborative filtering; Aplikasi NLP analisis sentimen...",
-            height=80)
+            placeholder="Sistem rekomendasi collaborative filtering; Aplikasi NLP analisis sentimen...", height=80)
 
-        # ── Lain-lain
         st.markdown('<div class="section-title">📌 Informasi Tambahan</div>', unsafe_allow_html=True)
-        bahasa   = st.text_input("Bahasa yang Dikuasai", placeholder="Indonesia (Native), Inggris (Aktif)")
-        hobi     = st.text_input("Hobi / Minat", placeholder="Open-source contribution, competitive programming")
-        summary  = st.text_area("Ringkasan Profil (opsional)",
-            placeholder="Profesional IT berpengalaman 3 tahun di bidang Data Science...",
-            height=80)
+        bahasa  = st.text_input("Bahasa yang Dikuasai", placeholder="Indonesia (Native), Inggris (Aktif)")
+        hobi    = st.text_input("Hobi / Minat",         placeholder="Open-source contribution, competitive programming")
+        summary = st.text_area("Ringkasan Profil (opsional)",
+            placeholder="Profesional IT berpengalaman 3 tahun di bidang Data Science...", height=80)
 
         submitted = st.button("🚀 Klasifikasikan Resume Saya", type="primary", use_container_width=True)
 
-    # ── RESULT COLUMN ────────────────────────────────────────
+    # ── KOLOM HASIL ──────────────────────────────────────────
     with col_result:
         st.markdown("### 🏁 Hasil Klasifikasi")
 
         if not submitted:
             st.info("Isi form di sebelah kiri, lalu klik **Klasifikasikan Resume Saya**.")
-            st.markdown("""
-**Cara pengisian:**
-- Isi bagian yang relevan dengan CV kamu
-- Semakin detail, semakin akurat prediksi model
-- Field yang tidak relevan bisa dikosongkan
-
-**Kategori yang tersedia:**
-""")
+            st.markdown("**Kategori yang tersedia:**")
             cat_list = [
                 "Data Science","Java Developer","Python Developer","Web Designing",
                 "DevOps Engineer","Testing","Automation Testing","Network Security Engineer",
@@ -267,7 +252,7 @@ with tab_form:
                 cols3[i % 2].markdown(f"• {c}")
 
         else:
-            # ── Gabung semua field jadi satu teks resume
+            # Gabung semua field jadi satu teks resume
             resume_parts = []
             if summary:       resume_parts.append(f"Profile: {summary}")
             if jurusan:       resume_parts.append(f"Education: {jenjang} {jurusan} {universitas} {tahun_lulus}")
@@ -303,21 +288,18 @@ with tab_form:
 
                 preds = {}
                 confs = {}
-
                 for mname, mdata in bundle.items():
                     mdl = mdata["model"]
                     if mname == "XGBoost":
-                        pred_enc   = mdl.predict(vect)
-                        pred_label = enc.inverse_transform(pred_enc)[0]
+                        pred_label = enc.inverse_transform(mdl.predict(vect))[0]
                         proba      = mdl.predict_proba(vect)[0]
                     else:
                         pred_label = mdl.predict(vect)[0]
                         proba      = mdl.predict_proba(vect)[0]
-
                     preds[mname] = pred_label
                     confs[mname] = round(float(proba.max() * 100), 1)
 
-                # ── Tampilkan kartu hasil
+                # Kartu hasil 2x2
                 c_dt, c_rf = st.columns(2)
                 c_sv, c_xg = st.columns(2)
 
@@ -329,7 +311,7 @@ with tab_form:
                     badge = " 🏆" if mname == best_model else ""
                     with col:
                         st.markdown(
-                            f"<div class='result-card' style='background: linear-gradient(135deg, {clr}dd, {clr});'>"
+                            f"<div class='result-card' style='background:linear-gradient(135deg,{clr}dd,{clr});'>"
                             f"<div class='model-name'>{icon} {mname}{badge}</div>"
                             f"<div class='pred-label'>{label}</div>"
                             f"<div class='conf'>Confidence {conf}%</div>"
@@ -343,80 +325,70 @@ with tab_form:
                 render_card(c_sv, "SVM")
                 render_card(c_xg, "XGBoost")
 
-                # ── Verdict
-                pred_list = list(preds.values())
-                vote      = pd.Series(pred_list).value_counts()
+                # Verdict
+                vote      = pd.Series(list(preds.values())).value_counts()
                 top_cat   = vote.index[0]
                 top_count = vote.iloc[0]
 
                 st.markdown("---")
                 if top_count == 4:
                     st.markdown(
-                        f"<div class='verdict-box' style='background:#d4edda; color:#155724;'>"
+                        f"<div class='verdict-box' style='background:#d4edda;color:#155724;'>"
                         f"✅ Semua model sepakat: <b>{top_cat}</b></div>",
-                        unsafe_allow_html=True,
-                    )
+                        unsafe_allow_html=True)
                 elif top_count >= 3:
                     st.markdown(
-                        f"<div class='verdict-box' style='background:#fff3cd; color:#856404;'>"
+                        f"<div class='verdict-box' style='background:#fff3cd;color:#856404;'>"
                         f"⚠️ Mayoritas model ({top_count}/4): <b>{top_cat}</b></div>",
-                        unsafe_allow_html=True,
-                    )
+                        unsafe_allow_html=True)
                 else:
                     st.markdown(
-                        f"<div class='verdict-box' style='background:#f8d7da; color:#721c24;'>"
+                        f"<div class='verdict-box' style='background:#f8d7da;color:#721c24;'>"
                         f"❓ Model tidak sepakat — hasil bervariasi</div>",
-                        unsafe_allow_html=True,
-                    )
+                        unsafe_allow_html=True)
 
-                # ── Confidence table
                 st.markdown("**Detail Confidence per Model:**")
-                df_conf = pd.DataFrame({
+                st.dataframe(pd.DataFrame({
                     "Model":      list(preds.keys()),
                     "Prediksi":   list(preds.values()),
                     "Confidence": [f"{confs[m]}%" for m in preds],
-                })
-                st.dataframe(df_conf, hide_index=True, use_container_width=True)
+                }), hide_index=True, use_container_width=True)
 
-                # ── Teks resume yang diproses
                 with st.expander("📋 Teks resume yang diproses model"):
                     st.text_area("", value=full_resume, height=150, disabled=True)
 
-# ═══════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 # TAB 2 — KOMPARASI MODEL
-# ═══════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 with tab_compare:
     st.subheader("📊 Tabel Perbandingan Metrik (pada dataset uji)")
 
-    df_res = pd.DataFrame([
-        {
-            "Model":       name,
-            "Train Acc":   d["train_acc"],
-            "CV Acc":      d["cv_mean"],
-            "CV Std (±)":  d["cv_std"],
-            "Test Acc":    d["test_acc"],
-            "Precision":   d["precision"],
-            "Recall":      d["recall"],
-            "F1-Score":    d["f1"],
-        }
-        for name, d in bundle.items()
-    ])
+    df_res = pd.DataFrame([{
+        "Model":      name,
+        "Train Acc":  d["train_acc"],
+        "CV Acc":     d["cv_mean"],
+        "CV Std (±)": d["cv_std"],
+        "Test Acc":   d["test_acc"],
+        "Precision":  d["precision"],
+        "Recall":     d["recall"],
+        "F1-Score":   d["f1"],
+    } for name, d in bundle.items()])
 
     def hl(col):
         if col.name == "CV Std (±)":
             best = col.min()
-            return ["background-color:#d4edda;font-weight:700" if v==best else "" for v in col]
-        if col.name == "Model": return [""]*len(col)
+            return ["background-color:#d4edda;font-weight:700" if v == best else "" for v in col]
+        if col.name == "Model":
+            return [""] * len(col)
         best = col.max()
-        return ["background-color:#d4edda;font-weight:700" if v==best else "" for v in col]
+        return ["background-color:#d4edda;font-weight:700" if v == best else "" for v in col]
 
     st.dataframe(
-        df_res.style.apply(hl).format({c:"{:.4f}" for c in df_res.columns if c!="Model"}),
+        df_res.style.apply(hl).format({c: "{:.4f}" for c in df_res.columns if c != "Model"}),
         use_container_width=True, hide_index=True,
     )
     st.caption("🟢 Hijau = nilai terbaik per kolom. CV Std: lebih kecil lebih stabil.")
 
-    # Analisis overfitting
     st.markdown("---")
     st.subheader("Analisis Generalisasi Model")
     for name, d in bundle.items():
@@ -435,61 +407,61 @@ with tab_compare:
             st.markdown(f"**{name}**")
             st.code(d["report"], language="text")
 
-# ═══════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 # TAB 3 — VISUALISASI
-# ═══════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 with tab_viz:
-    pal = ["#4C72B0","#55A868","#C44E52","#8172B2"]
+    pal   = ["#4C72B0", "#55A868", "#C44E52", "#8172B2"]
     names = list(bundle.keys())
 
     # Chart 1 — Test metrics
     st.subheader("Perbandingan Metrik Test Set")
-    fig1, ax1 = plt.subplots(figsize=(11,5))
+    fig1, ax1 = plt.subplots(figsize=(11, 5))
     x = np.arange(len(names)); w = 0.18
-    for i,(key,label) in enumerate([("test_acc","Test Acc"),("precision","Precision"),
+    for i, (key, lbl) in enumerate([("test_acc","Test Acc"),("precision","Precision"),
                                      ("recall","Recall"),("f1","F1-Score")]):
-        ax1.bar(x+i*w, [bundle[m][key] for m in names], w, label=label, alpha=0.85)
-    ax1.set_xticks(x+w*1.5); ax1.set_xticklabels(names)
-    ax1.set_ylim(0,1.15); ax1.set_ylabel("Score")
+        ax1.bar(x + i*w, [bundle[m][key] for m in names], w, label=lbl, alpha=0.85)
+    ax1.set_xticks(x + w*1.5); ax1.set_xticklabels(names)
+    ax1.set_ylim(0, 1.15); ax1.set_ylabel("Score")
     ax1.set_title("Perbandingan Metrik Evaluasi (Test Set)")
-    ax1.legend(); ax1.grid(axis="y",linestyle="--",alpha=0.4)
+    ax1.legend(); ax1.grid(axis="y", linestyle="--", alpha=0.4)
     plt.tight_layout(); st.pyplot(fig1); plt.close(fig1)
 
     # Chart 2 — Train vs CV vs Test
     st.subheader("Train vs CV vs Test Accuracy")
-    fig2, ax2 = plt.subplots(figsize=(10,5))
+    fig2, ax2 = plt.subplots(figsize=(10, 5))
     x = np.arange(len(names))
-    ax2.bar(x-w,[bundle[m]["train_acc"] for m in names],w,label="Train",color="#4C72B0",alpha=0.85)
-    ax2.bar(x,  [bundle[m]["cv_mean"]   for m in names],w,label="CV",   color="#55A868",alpha=0.85)
-    ax2.bar(x+w,[bundle[m]["test_acc"]  for m in names],w,label="Test", color="#C44E52",alpha=0.85)
+    ax2.bar(x-w, [bundle[m]["train_acc"] for m in names], w, label="Train", color="#4C72B0", alpha=0.85)
+    ax2.bar(x,   [bundle[m]["cv_mean"]   for m in names], w, label="CV",    color="#55A868", alpha=0.85)
+    ax2.bar(x+w, [bundle[m]["test_acc"]  for m in names], w, label="Test",  color="#C44E52", alpha=0.85)
     ax2.set_xticks(x); ax2.set_xticklabels(names)
-    ax2.set_ylim(0,1.15); ax2.legend(); ax2.set_ylabel("Accuracy")
+    ax2.set_ylim(0, 1.15); ax2.legend(); ax2.set_ylabel("Accuracy")
     ax2.set_title("Train vs CV vs Test Accuracy")
-    ax2.grid(axis="y",linestyle="--",alpha=0.4)
+    ax2.grid(axis="y", linestyle="--", alpha=0.4)
     plt.tight_layout(); st.pyplot(fig2); plt.close(fig2)
 
     # Chart 3 — CV error bar
     st.subheader("Cross-Validation Accuracy (5-Fold Stratified)")
-    fig3, ax3 = plt.subplots(figsize=(8,4))
+    fig3, ax3 = plt.subplots(figsize=(8, 4))
     cv_m = [bundle[m]["cv_mean"] for m in names]
     cv_s = [bundle[m]["cv_std"]  for m in names]
-    bars = ax3.bar(names,cv_m,yerr=cv_s,capsize=6,color=pal,alpha=0.85,ecolor="black")
-    for bar,val in zip(bars,cv_m):
-        ax3.text(bar.get_x()+bar.get_width()/2, bar.get_height()+0.025,
+    bars = ax3.bar(names, cv_m, yerr=cv_s, capsize=6, color=pal, alpha=0.85, ecolor="black")
+    for bar, val in zip(bars, cv_m):
+        ax3.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.025,
                  f"{val:.4f}", ha="center", va="bottom", fontsize=10, fontweight="bold")
-    ax3.set_ylim(0,1.15); ax3.set_ylabel("CV Accuracy")
+    ax3.set_ylim(0, 1.15); ax3.set_ylabel("CV Accuracy")
     ax3.set_title("Cross-Validation Accuracy ± Std Dev")
-    ax3.grid(axis="y",linestyle="--",alpha=0.4)
+    ax3.grid(axis="y", linestyle="--", alpha=0.4)
     plt.tight_layout(); st.pyplot(fig3); plt.close(fig3)
 
     # Chart 4 — Confusion matrices
     st.subheader("Confusion Matrix — Semua Model")
-    fig4, axes = plt.subplots(2,2,figsize=(20,16))
+    fig4, axes = plt.subplots(2, 2, figsize=(20, 16))
     for ax, name in zip(axes.flatten(), names):
         sns.heatmap(bundle[name]["cm"], annot=False, cmap="Blues", ax=ax,
                     xticklabels=classes, yticklabels=classes)
         ax.set_title(f"Confusion Matrix — {name}", fontsize=13, fontweight="bold")
         ax.set_xlabel("Predicted"); ax.set_ylabel("True")
-        ax.tick_params(axis="x",rotation=45,labelsize=6)
-        ax.tick_params(axis="y",rotation=0, labelsize=6)
+        ax.tick_params(axis="x", rotation=45, labelsize=6)
+        ax.tick_params(axis="y", rotation=0,  labelsize=6)
     plt.tight_layout(); st.pyplot(fig4); plt.close(fig4)
