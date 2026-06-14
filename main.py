@@ -2,12 +2,17 @@
 """
 Aplikasi Streamlit — Resume Classification Form
 Komparasi: Decision Tree | Random Forest | SVM | XGBoost
+
+CARA DEPLOY:
+1. Jalankan `python train_and_save.py` sekali untuk membuat folder model_cache/
+2. Commit folder model_cache/ ke repo GitHub bersama main.py
+3. Deploy ke Streamlit Cloud — model langsung dimuat, tidak perlu latih ulang
 """
 
 import streamlit as st
 import pandas as pd
 import numpy as np
-import re, string, os
+import re, string, os, json
 
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -16,17 +21,7 @@ import nltk
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 
-from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import (
-    accuracy_score, precision_score, recall_score,
-    f1_score, confusion_matrix, classification_report,
-)
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.svm import SVC
-from xgboost import XGBClassifier
+import joblib
 
 # ── Page config ──────────────────────────────────────────────
 st.set_page_config(page_title="Resume Classifier", page_icon="📄", layout="wide")
@@ -80,82 +75,61 @@ def clean_text(text):
              if w not in stop_words and len(w) > 2]
     return " ".join(words)
 
-# ── Train models ─────────────────────────────────────────────
+# ── Load models dari cache ────────────────────────────────────
+CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "model_cache")
+MODEL_NAMES = ["Decision Tree", "Random Forest", "SVM", "XGBoost"]
+
 @st.cache_resource(show_spinner=False)
-def train_all(csv_path):
-    df = pd.read_csv(csv_path)
-    df["Cleaned"] = df["Resume"].apply(clean_text)
-    X_raw, y = df["Cleaned"], df["Category"]
+def load_all_models():
+    """Muat model dari file .pkl — jauh lebih cepat daripada melatih ulang."""
+    if not os.path.exists(CACHE_DIR):
+        return None, None, None, None
 
-    X_tr_raw, X_te_raw, y_tr, y_te = train_test_split(
-        X_raw, y, test_size=0.2, random_state=42, stratify=y)
+    vec = joblib.load(os.path.join(CACHE_DIR, "vectorizer.pkl"))
+    enc = joblib.load(os.path.join(CACHE_DIR, "label_encoder.pkl"))
 
-    vec = TfidfVectorizer(max_features=1000, ngram_range=(1,1),
-                          min_df=5, max_df=0.80, sublinear_tf=True)
-    X_tr = vec.fit_transform(X_tr_raw)
-    X_te = vec.transform(X_te_raw)
+    with open(os.path.join(CACHE_DIR, "classes.json")) as f:
+        classes = json.load(f)
 
-    enc = LabelEncoder()
-    y_tr_enc = enc.fit_transform(y_tr)
-    y_te_enc = enc.transform(y_te)
+    bundle = {}
+    for name in MODEL_NAMES:
+        safe_name = name.lower().replace(" ", "_")
+        model_path   = os.path.join(CACHE_DIR, f"{safe_name}.pkl")
+        metrics_path = os.path.join(CACHE_DIR, f"{safe_name}_metrics.json")
 
-    cv5 = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+        mdl = joblib.load(model_path)
+        with open(metrics_path) as f:
+            metrics = json.load(f)
 
-    def fit_eval(name, mdl, use_enc=False):
-        if use_enc:
-            mdl.fit(X_tr, y_tr_enc)
-            pred_enc = mdl.predict(X_te)
-            pred = enc.inverse_transform(pred_enc)
-            cv_s = cross_val_score(mdl, X_tr, y_tr_enc, cv=cv5, scoring="accuracy")
-            tr_acc = accuracy_score(y_tr, enc.inverse_transform(mdl.predict(X_tr)))
-        else:
-            mdl.fit(X_tr, y_tr)
-            pred = mdl.predict(X_te)
-            cv_s = cross_val_score(mdl, X_tr, y_tr, cv=cv5, scoring="accuracy")
-            tr_acc = accuracy_score(y_tr, mdl.predict(X_tr))
-        return {
-            "model":      mdl,
-            "train_acc":  round(tr_acc, 4),
-            "cv_mean":    round(float(cv_s.mean()), 4),
-            "cv_std":     round(float(cv_s.std()),  4),
-            "test_acc":   round(accuracy_score(y_te, pred), 4),
-            "precision":  round(precision_score(y_te, pred, average="weighted", zero_division=0), 4),
-            "recall":     round(recall_score(y_te, pred, average="weighted", zero_division=0), 4),
-            "f1":         round(f1_score(y_te, pred, average="weighted", zero_division=0), 4),
-            "cm":         confusion_matrix(y_te, pred, labels=sorted(y_te.unique())),
-            "report":     classification_report(y_te, pred, zero_division=0),
-        }
+        # cm disimpan sebagai list, ubah kembali ke numpy array
+        metrics["cm"] = np.array(metrics["cm"])
+        metrics["model"] = mdl
+        bundle[name] = metrics
 
-    bundle = {
-        "Decision Tree": fit_eval("Decision Tree", DecisionTreeClassifier(
-            criterion="entropy", max_depth=12, min_samples_split=4,
-            min_samples_leaf=2, class_weight="balanced", random_state=42)),
-        "Random Forest": fit_eval("Random Forest", RandomForestClassifier(
-            n_estimators=200, max_depth=6, min_samples_split=15,
-            min_samples_leaf=8, max_features="sqrt", random_state=42, n_jobs=-1)),
-        "SVM": fit_eval("SVM", SVC(
-            kernel="rbf", C=10, gamma="scale", probability=True, random_state=42)),
-        "XGBoost": fit_eval("XGBoost", XGBClassifier(
-            n_estimators=100, max_depth=3, learning_rate=0.1,
-            subsample=0.6, colsample_bytree=0.6, reg_alpha=2.0, reg_lambda=5.0,
-            min_child_weight=12, random_state=42, eval_metric="mlogloss", verbosity=0),
-            use_enc=True),
-    }
-    return vec, enc, bundle, sorted(y_te.unique())
+    return vec, enc, bundle, classes
 
-# ── Resolve CSV path (lokal & Streamlit Cloud) ───────────────
-_BASE = os.path.dirname(os.path.abspath(__file__))
-CSV   = os.path.join(_BASE, "UpdatedResumeDataSet.csv")
+# ── Cek apakah model_cache ada ───────────────────────────────
+cache_exists = os.path.exists(CACHE_DIR) and os.path.exists(
+    os.path.join(CACHE_DIR, "vectorizer.pkl"))
 
-if not os.path.exists(CSV):
+if not cache_exists:
     st.error(
-        "❌ File **UpdatedResumeDataSet.csv** tidak ditemukan.\n\n"
-        f"Letakkan di folder yang sama dengan `main.py`:\n`{_BASE}`"
+        "❌ Folder **model_cache/** tidak ditemukan atau kosong.\n\n"
+        "**Langkah yang perlu dilakukan:**\n"
+        "1. Pastikan `UpdatedResumeDataSet.csv` ada di folder yang sama\n"
+        "2. Jalankan perintah berikut di terminal lokal:\n"
+        "   ```\n   python train_and_save.py\n   ```\n"
+        "3. Commit folder `model_cache/` ke repository GitHub\n"
+        "4. Deploy ulang aplikasi ini ke Streamlit Cloud"
     )
     st.stop()
 
-with st.spinner("⏳ Melatih keempat model… (hanya sekali, lalu di-cache)"):
-    vec, enc, bundle, classes = train_all(CSV)
+with st.spinner("⏳ Memuat model dari cache..."):
+    vec, enc, bundle, classes = load_all_models()
+
+if bundle is None:
+    st.error("Gagal memuat model dari cache. Jalankan `python train_and_save.py` terlebih dahulu.")
+    st.stop()
 
 best_model = max(bundle, key=lambda m: bundle[m]["f1"])
 
@@ -252,7 +226,6 @@ with tab_form:
                 cols3[i % 2].markdown(f"• {c}")
 
         else:
-            # Gabung semua field jadi satu teks resume
             resume_parts = []
             if summary:       resume_parts.append(f"Profile: {summary}")
             if jurusan:       resume_parts.append(f"Education: {jenjang} {jurusan} {universitas} {tahun_lulus}")
@@ -299,7 +272,6 @@ with tab_form:
                     preds[mname] = pred_label
                     confs[mname] = round(float(proba.max() * 100), 1)
 
-                # Kartu hasil 2x2
                 c_dt, c_rf = st.columns(2)
                 c_sv, c_xg = st.columns(2)
 
@@ -325,7 +297,6 @@ with tab_form:
                 render_card(c_sv, "SVM")
                 render_card(c_xg, "XGBoost")
 
-                # Verdict
                 vote      = pd.Series(list(preds.values())).value_counts()
                 top_cat   = vote.index[0]
                 top_count = vote.iloc[0]
@@ -414,7 +385,6 @@ with tab_viz:
     pal   = ["#4C72B0", "#55A868", "#C44E52", "#8172B2"]
     names = list(bundle.keys())
 
-    # Chart 1 — Test metrics
     st.subheader("Perbandingan Metrik Test Set")
     fig1, ax1 = plt.subplots(figsize=(11, 5))
     x = np.arange(len(names)); w = 0.18
@@ -427,7 +397,6 @@ with tab_viz:
     ax1.legend(); ax1.grid(axis="y", linestyle="--", alpha=0.4)
     plt.tight_layout(); st.pyplot(fig1); plt.close(fig1)
 
-    # Chart 2 — Train vs CV vs Test
     st.subheader("Train vs CV vs Test Accuracy")
     fig2, ax2 = plt.subplots(figsize=(10, 5))
     x = np.arange(len(names))
@@ -440,7 +409,6 @@ with tab_viz:
     ax2.grid(axis="y", linestyle="--", alpha=0.4)
     plt.tight_layout(); st.pyplot(fig2); plt.close(fig2)
 
-    # Chart 3 — CV error bar
     st.subheader("Cross-Validation Accuracy (5-Fold Stratified)")
     fig3, ax3 = plt.subplots(figsize=(8, 4))
     cv_m = [bundle[m]["cv_mean"] for m in names]
@@ -454,7 +422,6 @@ with tab_viz:
     ax3.grid(axis="y", linestyle="--", alpha=0.4)
     plt.tight_layout(); st.pyplot(fig3); plt.close(fig3)
 
-    # Chart 4 — Confusion matrices
     st.subheader("Confusion Matrix — Semua Model")
     fig4, axes = plt.subplots(2, 2, figsize=(20, 16))
     for ax, name in zip(axes.flatten(), names):
